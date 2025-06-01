@@ -1,0 +1,42 @@
+{
+  "name": "@augmentos/flex",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "dev": "bun --watch src/index.ts",
+    "start": "bun dist/index.js",
+    "ngrok": "ngrok http --url=dash-aos.ngrok.app 8003"
+  },
+  "dependencies": {
+    "@augmentos/sdk": "^1.1.10",
+    "@google/generative-ai": "^0.3.0",
+    "@types/cookie-parser": "^1.4.8",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.1",
+    "@types/mongoose": "^5.11.97",
+    "@types/node": "^22.13.14",
+    "@types/tz-lookup": "^6.1.2",
+    "@types/ws": "^8.18.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.3.0",
+    "path": "^0.12.7",
+    "tz-lookup": "^6.1.25",
+    "uuid": "^11.1.0",
+    "ws": "^8.18.1",
+    "@langchain/anthropic": "^0.3.13",
+    "@langchain/community": "^0.3.31",
+    "@langchain/core": "^0.3.40",
+    "@langchain/google-vertexai": "^0.1.8",
+    "langchain": "^0.3.18"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.15",
+    "typescript": "^5.0.0"
+  }
+}

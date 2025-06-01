@@ -1,0 +1,27 @@
+{
+    "name": "Dashboard Manager",
+    "description": "Dashboard Manager",
+    "version": "1.0.0",
+    "settings": [
+      {
+        "type": "group",
+        "title": "Dashboard settings"
+      },
+      {
+        "key": "dashboard_content",
+        "type": "select",
+        "label": "Dashboard content",
+        "defaultValue": "none",
+        "options": [
+          {
+            "label": "None",
+            "value": "none"
+          },
+          {
+            "label": "Weather",
+            "value": "weather"
+          }
+        ]
+      }
+    ]
+  }
