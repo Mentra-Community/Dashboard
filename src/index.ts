@@ -5,11 +5,6 @@
  * using the SDK Dashboard API.
  */
 import path from "path";
-import { wrapText } from './text-utils';
-import tzlookup from 'tz-lookup';
-import { v4 as uuidv4 } from 'uuid';
-import { WeatherModule, WeatherSummary } from './dashboard-modules/WeatherModule';
-import { NotificationSummaryAgent } from './agents';
 import {
   TpaServer,
   TpaSession,
@@ -18,14 +13,19 @@ import {
   GlassesBatteryUpdate,
   LocationUpdate,
   PhoneNotification,
-  CalendarEvent,
-  logger
+  CalendarEvent
 } from '@augmentos/sdk';
+import { wrapText } from './text-utils';
+import tzlookup from 'tz-lookup';
+import { v4 as uuidv4 } from 'uuid';
+import { WeatherModule } from './dashboard-modules/WeatherModule';
+import { NotificationSummaryAgent } from './agents';
+import { logger } from '@augmentos/sdk';
 
 // Configuration constants
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 80;
-const PACKAGE_NAME = process.env.PACKAGE_NAME as string;
-const API_KEY = process.env.AUGMENTOS_API_KEY as string;
+const PACKAGE_NAME = "system.augmentos.dashboard";
+const API_KEY = process.env.AUGMENTOS_API_KEY || '';
 
 // Validate API key
 if (!API_KEY) {
@@ -157,7 +157,6 @@ class DashboardServer extends TpaServer {
     }
 
     const useMetric = session.settings.get('metricSystemEnabled'); // Get from session settings
-    console.log(`[Dashboard] Metric system enabled: ${JSON.stringify(session.settings)}`);
     logger.info(`[Dashboard] Metric system enabled: ${useMetric}`);
     logger.info(`✅ Dashboard session setup completed for user ${userId}`, {
       sessionId,
@@ -185,6 +184,7 @@ class DashboardServer extends TpaServer {
 
       // Force refresh weather data with new unit setting
       const sessionInfo = this._activeSessions.get(sessionId);
+      logger.info({ sessionInfo, location: sessionInfo?.latestLocation })
       if (sessionInfo && sessionInfo.latestLocation) {
         // Fetch fresh weather data with new units
         this.fetchWeatherData(session, sessionId,
@@ -288,7 +288,7 @@ class DashboardServer extends TpaServer {
       sessionInfo.dashboardMode = DashboardMode.MAIN;
       logger.info(`✅ Dashboard mode set to ${DashboardMode.MAIN} for session ${sessionId}`);
     } catch (error) {
-      logger.error(`❌ Error setting dashboard mode: ${error}`);
+      logger.error(error, `❌ Error setting dashboard mode for session ${sessionId}`);
     }
 
     // Initialize dashboard sections
@@ -297,7 +297,7 @@ class DashboardServer extends TpaServer {
       this.updateDashboardSections(session, sessionId);
       logger.info(`✅ Dashboard sections initialized for session ${sessionId}`);
     } catch (error) {
-      logger.error(`❌ Error initializing dashboard sections: ${error}`);
+      logger.error(error, `❌ Error initializing dashboard sections for session ${sessionId}`);
     }
   }
 
@@ -319,42 +319,23 @@ class DashboardServer extends TpaServer {
       // Format time and battery together for top left (to match original format)
       const timeText = this.formatTimeSection(session, sessionInfo);
       const batteryText = this.formatBatterySection(sessionInfo);
-      const topLeftText = `${timeText}, ${batteryText}`;
+      const statusText = this.formatStatusSection(session, sessionInfo);
+      const notificationText = this.formatNotificationSection(sessionInfo);
 
-      logger.info(`📊 Setting top-left dashboard section for user ${session.userId}`, {
-        timeText: timeText,
-        batteryText: batteryText
-      });
+      // Dashboard sections
+      const topLeftText = `${timeText}, ${batteryText}`;
+      const topRight = statusText;
+      const bottomLeft = notificationText;
 
       session.dashboard.system?.setTopLeft(topLeftText);
-      logger.info(`✅ Top-left section updated for user ${session.userId}`);
-
-      // Format status section (weather, calendar, etc.)
-      const statusText = this.formatStatusSection(session, sessionInfo);
-      logger.info(`📊 Setting top-right dashboard section for user ${session.userId}`, {
-        statusText: statusText.substring(0, 30) + (statusText.length > 30 ? '...' : '')
-      });
-
-      session.dashboard.system?.setTopRight(statusText);
-      logger.info(`✅ Top-right section updated for user ${session.userId}`);
-
-      // Format notification section
-      const notificationText = this.formatNotificationSection(sessionInfo);
-      logger.info(`📊 Setting bottom-left dashboard section for user ${session.userId}`, {
-        notificationText: notificationText ?
-          notificationText.substring(0, 30) + (notificationText.length > 30 ? '...' : '') :
-          'empty'
-      });
-
-      session.dashboard.system?.setBottomLeft(notificationText);
-      logger.info(`✅ Bottom-left section updated for user ${session.userId}`);
+      session.dashboard.system?.setTopRight(topRight);
+      session.dashboard.system?.setBottomLeft(bottomLeft);
 
       // Don't send bottom right since we're not using it in the original format
-      session.dashboard.system?.setBottomRight("");
-
-      logger.info(`✅ All dashboard sections updated successfully for user ${session.userId}`);
+      // session.dashboard.system?.setBottomRight("");
+      logger.debug({ topLeftText, topRight, bottomLeft }, `Updated dashboard for ${session.userId}`)
     } catch (error) {
-      logger.error(`❌ Error updating dashboard sections for user ${session.userId}:`, error);
+      logger.error(error, `❌ Error updating dashboard sections for user ${session.userId}`);
     }
   }
 
@@ -403,7 +384,7 @@ class DashboardServer extends TpaServer {
         formatted = formatted.replace(/ [AP]M/, "");
         return `◌ ${formatted}`;
       } catch (error) {
-        logger.error(`Error formatting time:`, error);
+        logger.error(error, `Error formatting time doe session ${session.userId}`);
         // fallback below
       }
     }
@@ -484,6 +465,7 @@ class DashboardServer extends TpaServer {
    */
   private formatCalendarEvent(session: TpaSession, event: any, sessionInfo: any): string {
     const logger = session.logger; // Use session logger to have session-specific logs with userId correlation.
+    logger.debug({ event, sessionInfo }, `Formatting calendar event for session ${session.userId}`);
 
     try {
       const timezone = sessionInfo.latestLocation?.timezone;
@@ -509,7 +491,8 @@ class DashboardServer extends TpaServer {
 
       return `${title} @ ${formattedTime}`;
     } catch (error) {
-      logger.error({ error, userId: sessionInfo.userId }, 'Error formatting calendar event');
+      logger.error(error, `Error formating calendar event for session ${session.userId}`);
+      logger.error({ sessionInfo, event }, `Error formating calendar event for session ${session.userId}`);
       return "Calendar event";
     }
   }
@@ -519,7 +502,9 @@ class DashboardServer extends TpaServer {
    */
   private async handlePhoneNotification(session: TpaSession, sessionId: string, data: PhoneNotification): Promise<void> {
     const logger = session.logger; // Use session logger to have session-specific logs with userId correlation
+    logger.debug({ data, function: "handlePhoneNotification" }, `handlePhoneNotification for session ${sessionId}`);
 
+    // Check if session exists
     const sessionInfo = this._activeSessions.get(sessionId);
     if (!sessionInfo) return;
 
@@ -564,8 +549,8 @@ class DashboardServer extends TpaServer {
         timestamp: new Date(n.timestamp).getTime() || Date.now()
       }));
       logger.debug('NotificationSummaryAgent ranking:', { ranking });
-    } catch (err) {
-      logger.error('Error using NotificationSummaryAgent:', err);
+    } catch (error) {
+      logger.error(error, `Error using NotificationSummaryAgent for session ${session.userId}`);
       // fallback: use manual summary as before
       sessionInfo.phoneNotificationRanking = sessionInfo.phoneNotificationCache
         .sort((a, b) => b.timestamp - a.timestamp)
@@ -584,7 +569,7 @@ class DashboardServer extends TpaServer {
    */
   private async fetchWeatherData(session: TpaSession, sessionId: string, lat: number, lng: number, forceUpdate: boolean = false): Promise<void> {
     const logger = session.logger; // Use session logger to have session-specific logs with userId correlation.
-
+    logger.debug({ lat, lng, forceUpdate, function: "fetchWeatherData" }, `Fetching weather data for session ${sessionId}`);
     const sessionInfo = this._activeSessions.get(sessionId);
     if (!sessionInfo) return;
 
@@ -595,8 +580,8 @@ class DashboardServer extends TpaServer {
 
     if (shouldFetchWeather) {
       try {
-        const weatherModule = new WeatherModule(session.logger);
-        const weatherData = await weatherModule.fetchWeatherForecast(lat, lng);
+        const weatherModule = new WeatherModule();
+        const weatherData = await weatherModule.fetchWeatherForecast(session, lat, lng);
 
         if (weatherData) {
           // Use metricSystemEnabled from session settings to decide units
@@ -616,7 +601,7 @@ class DashboardServer extends TpaServer {
           this.updateDashboardSections(session, sessionId);
         }
       } catch (error) {
-        logger.error(`Error fetching weather for session ${sessionId}:`, error);
+        logger.error(error, `Error fetching weather for session ${sessionId}`);
       }
     }
   }
@@ -626,6 +611,7 @@ class DashboardServer extends TpaServer {
    */
   private async handleLocationUpdate(session: TpaSession, sessionId: string, data: LocationUpdate): Promise<void> {
     const logger = session.logger; // Use session logger to have session-specific logs with userId correlation.
+    logger.debug({ data, function: "handleLocationUpdate" }, `handleLocationUpdate for session ${sessionId}`);
 
     const sessionInfo = this._activeSessions.get(sessionId);
     if (!sessionInfo) return;
@@ -637,7 +623,7 @@ class DashboardServer extends TpaServer {
 
     // Skip if invalid coordinates
     if (typeof lat !== "number" || typeof lng !== "number") {
-      logger.error(`Invalid location data:`, data);
+      logger.error({ data }, `Invalid location data for session ${session.userId}`);
       return;
     }
 
@@ -646,7 +632,7 @@ class DashboardServer extends TpaServer {
     try {
       timezone = tzlookup(lat, lng);
     } catch (error) {
-      logger.error(`Error looking up timezone for lat=${lat}, lng=${lng}:`, error);
+      logger.error(error, `Error looking up timezone for lat=${lat}, lng=${lng}: for session ${session.userId}`);
     }
 
     // Update location in session
@@ -667,6 +653,8 @@ class DashboardServer extends TpaServer {
    * Handle battery update event
    */
   private handleBatteryUpdate(session: TpaSession, sessionId: string, data: GlassesBatteryUpdate): void {
+    const logger = session.logger; // Use session logger to have session-specific logs with userId correlation.
+    logger.debug({ data, function: "handleBatteryUpdate" }, `handleBatteryUpdate for session ${sessionId}`);
     const sessionInfo = this._activeSessions.get(sessionId);
     if (!sessionInfo) return;
 
@@ -682,13 +670,14 @@ class DashboardServer extends TpaServer {
    */
   private handleCalendarEvent(session: TpaSession, sessionId: string, event: CalendarEvent): void {
     const logger = session.logger; // Use session logger to have session-specific logs with userId correlation.
+    logger.debug({ event, function: "handleCalendarEvent" }, `handleCalendarEvent for session ${sessionId}`);
 
     const sessionInfo = this._activeSessions.get(sessionId);
     if (!sessionInfo) return;
 
     // Validate event structure
     if (!event.title || !event.dtStart) {
-      logger.error(`Invalid calendar event structure:`, event);
+      logger.error({ event }, `Invalid calendar event structure for session ${sessionId}`);
       return;
     }
 
@@ -696,13 +685,13 @@ class DashboardServer extends TpaServer {
     const eventStart = new Date(event.dtStart).getTime();
     const now = Date.now();
     if (isNaN(eventStart)) {
-      logger.error(`Invalid dtStart in calendar event:`, event);
+      logger.error({ event }, `Invalid dtStart in calendar event for session ${sessionId}`);
       return;
     }
 
     // If the event is expired, do not save it
     if (eventStart < now) {
-      logger.info(`Received expired calendar event, ignoring:`, { title: event.title, dtStart: event.dtStart });
+      logger.info({ title: event.title, dtStart: event.dtStart }, `Received expired calendar event, ignoring:`);
       return;
     }
 
@@ -744,7 +733,7 @@ const dashboardServer = new DashboardServer();
 dashboardServer.start().then(() => {
   dashboardServer.logger.info(`Dashboard Manager TPA running on port ${PORT}`);
 }).catch(error => {
-  dashboardServer.logger.error('Failed to start Dashboard Manager:', error);
+  dashboardServer.logger.error(error, 'Failed to start Dashboard Manager');
   process.exit(1);
 });
 
