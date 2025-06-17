@@ -1,90 +1,69 @@
-# Flex: Workout Tracking App for AR Glasses
+# Dashboard TPA
 
-Flex is a minimalist workout tracking app for AR glasses with a HUD display limited to 5 lines of text. The app is controlled entirely through voice commands and focuses on recording exercises, weights, and reps while showing historical data for progressive overload.
+A system Third-Party Application (TPA) for AugmentOS that provides dashboard functionality for AR glasses. The Dashboard TPA manages the display of system information including time, battery status, weather, notifications, and calendar events on the AR glasses HUD.
 
 ## Features
 
-- Minimalist display optimized for AR glasses
-- Voice-only control for hands-free operation during workouts
-- Exercise tracking with weight and rep recording
-- Historical workout data for progressive overload
-- MongoDB storage for persistence
+- **System Information Display**: Shows current time, battery level, and connection status
+- **Weather Integration**: Displays current weather conditions based on user location
+- **Smart Notifications**: Processes and ranks phone notifications using AI agents
+- **Calendar Integration**: Shows upcoming calendar events with smart timing
+- **Location Awareness**: Automatically detects timezone and fetches location-based weather
+- **Settings Integration**: Responds to AugmentOS system settings changes (metric/imperial units)
 
 ## Prerequisites
 
 - [Bun](https://bun.sh/) for JavaScript runtime
-- [Docker](https://www.docker.com/) and Docker Compose for containerization
 - AugmentOS API key
-- Google Gemini API key
+- Google Gemini API key (for notification processing)
 
 ## Setup
 
 1. Clone the repository
 
-2. Copy the example environment file and update with your credentials:
-   ```
-   cp example.env .env
-   ```
-
-3. Install dependencies:
-   ```
+2. Install dependencies:
+   ```bash
    bun install
    ```
 
-4. Start the development server:
+3. Set environment variables:
+   ```bash
+   export AUGMENTOS_API_KEY=your_api_key_here
+   export PORT=80  # Optional, defaults to 80
    ```
-   bun run docker:dev
+
+4. Start the application:
+   ```bash
+   bun run dev
    ```
-
-## Usage
-
-The app provides the following voice commands:
-
-### Global Commands
-
-- "Show workout app": Bring the app into view
-- "Hide workout app": Temporarily hide the app from view
-- "Home": Return to exercise selection screen
-
-### Exercise Selection Screen
-
-- "Select [exercise name]": Open the selected exercise
-- "New exercise [name]": Create and open a new exercise
-- "Rename [old name] to [new name]": Change the name of an exercise
-- "Delete [exercise name]": Remove an exercise from the list
-
-### Exercise History/Active Screen
-
-- "Log set [weight] by [reps]": Record a new set (e.g., "Log set 185 by 8")
-- "Edit last set to [weight] by [reps]": Correct a mistake in the most recent set
-- "Complete exercise": Finish the current exercise and return to selection screen
-- "Back": Return to exercise selection screen
-- "Delete today's data": Remove all sets logged today
 
 ## Development
 
 ### Project Structure
 
 ```
-/flex
-  /docker             # Docker configuration
-  /docs               # Documentation and design docs
-  /src                # Source code
-    /models           # MongoDB schemas
-    /services         # Business logic
-      /display        # Display formatting services
-      /intent         # Intent detection system
-      /session        # Session management
-    app.ts            # Main application
-    index.ts          # Entry point
+/src
+  /agents             # AI agents for processing notifications
+  /dashboard-modules  # Dashboard-specific modules (weather, etc.)
+  /text-utils         # Text formatting utilities
+  index.ts            # Main TPA server implementation
 ```
 
 ### Key Technologies
 
-- AugmentOS SDK for AR glasses integration
-- Google Gemini for natural language understanding
-- Express for HTTP server
-- MongoDB with Mongoose for data persistence
+- **AugmentOS SDK**: Dashboard API integration for AR glasses
+- **Google Gemini**: AI-powered notification processing and ranking
+- **LangChain**: Agent framework for AI functionality
+- **Express**: HTTP server for TPA endpoints
+- **TypeScript**: Type-safe development
+
+### Dashboard Sections
+
+The dashboard displays information in four sections:
+- **Top Left**: Date/time and battery percentage
+- **Top Right**: Weather conditions and calendar events
+- **Bottom Left**: Prioritized phone notifications
+- **Bottom Right**: (Currently unused)
 
 ## License
 
