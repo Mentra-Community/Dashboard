@@ -156,7 +156,7 @@ class DashboardServer extends TpaServer {
       logger.info(`✅ Dashboard update interval scheduled for session ${sessionId}`);
     }
 
-    const useMetric = session.settings.get('metricSystemEnabled'); // Get from session settings
+    const useMetric = session.settings.getAugmentosSetting('metricSystemEnabled'); // Get from session settings
     logger.info(`[Dashboard] Metric system enabled: ${useMetric}`);
     logger.info(`✅ Dashboard session setup completed for user ${userId}`, {
       sessionId,
@@ -578,7 +578,8 @@ class DashboardServer extends TpaServer {
       !sessionInfo.weatherCache ||
       (Date.now() - (sessionInfo.weatherCache.timestamp || 0) > 60 * 60 * 1000); // 1 hour
 
-    if (shouldFetchWeather) {
+    // TODO(isaiah): remove this check when we have a proper weather module.
+    if (shouldFetchWeather || true) {
       try {
         const weatherModule = new WeatherModule();
         const weatherData = await weatherModule.fetchWeatherForecast(session, lat, lng);
