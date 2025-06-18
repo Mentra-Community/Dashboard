@@ -5,8 +5,8 @@ WORKDIR /app
 # Copy package files
 COPY package.json bun.lock* ./
 
-# Install dependencies (including dev dependencies for build)
-RUN bun install
+# Clear bun cache and install dependencies
+RUN bun pm cache rm && bun install --no-cache
 
 # Copy the application code
 COPY . .
