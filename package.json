@@ -5,7 +5,7 @@
   "scripts": {
     "build": "bun build ./src/index.ts --outdir ./dist --target bun",
     "dev": "bun --watch src/index.ts",
-    "start": "bun dist/index.js",
+    "start": "bun src/index.ts",
     "ngrok": "ngrok http --url=dash-aos.ngrok.app 8003"
   },
   "dependencies": {
