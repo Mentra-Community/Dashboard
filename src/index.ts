@@ -498,7 +498,10 @@ class DashboardServer extends TpaServer {
     logger.debug({ event, sessionInfo }, `Formatting calendar event for session ${session.userId}`);
 
     try {
-      const timezone = sessionInfo.latestLocation?.timezone;
+      // PRIORITIZE event.timeZone, then user location, then system time
+      const timezone = event.timeZone || sessionInfo.latestLocation?.timezone;
+
+      logger.debug({ timezone }, `Calendar event timezone: ${timezone}`);
 
       let eventDate: Date;
       if (timezone) {
