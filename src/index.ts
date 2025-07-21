@@ -435,18 +435,48 @@ class DashboardServer extends TpaServer {
     // Prioritize calendar events if available and not expired
     if (sessionInfo.calendarEvent) {
       const event = sessionInfo.calendarEvent;
-      const now = Date.now();
-      const start = new Date(event.dtStart).getTime();
-      const end = event.dtEnd ? new Date(event.dtEnd).getTime() : null;
+      let now: Date;
+      let start = new Date(event.dtStart);
+      const end = event.dtEnd ? new Date(event.dtEnd) : null;
       const tenMinutes = 10 * 60 * 1000;
 
-      // If event has an end time, hide if now > end
-      if (end && now > end) {
-        // Don't show expired event
-      } else if (now > start + tenMinutes) {
-        // Hide if more than 10 minutes past start
+      // Always restrict: userDatetime > timezone > system time
+      let isTomorrow = false;
+      let startInTz = start;
+      if (sessionInfo.userDatetime) {
+        now = new Date(sessionInfo.userDatetime);
+        startInTz = new Date(event.dtStart);
+      } else if (sessionInfo.latestLocation?.timezone) {
+        const tz = sessionInfo.latestLocation.timezone;
+        now = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
+        startInTz = new Date(start.toLocaleString('en-US', { timeZone: tz }));
       } else {
-        return this.formatCalendarEvent(session, event, sessionInfo);
+        now = new Date();
+        startInTz = start;
+      }
+
+      // Only show if event is today or tomorrow
+      const isToday = now.getFullYear() === startInTz.getFullYear() &&
+        now.getMonth() === startInTz.getMonth() &&
+        now.getDate() === startInTz.getDate();
+      const tomorrow = new Date(now);
+      tomorrow.setDate(now.getDate() + 1);
+      isTomorrow = tomorrow.getFullYear() === startInTz.getFullYear() &&
+        tomorrow.getMonth() === startInTz.getMonth() &&
+        tomorrow.getDate() === startInTz.getDate();
+
+      if (!(isToday || isTomorrow)) {
+        // Event is not today or tomorrow, do not show
+        // Fall through to weather/default
+      } else {
+        // If event has an end time, hide if now > end
+        if (end && now > end) {
+          // Don't show expired event
+        } else if (now > new Date(startInTz.getTime() + tenMinutes)) {
+          // Hide if more than 10 minutes past start
+        } else {
+          return this.formatCalendarEvent(session, event, sessionInfo, isTomorrow);
+        }
       }
       // Otherwise, fall through to weather/default
     }
@@ -463,7 +493,7 @@ class DashboardServer extends TpaServer {
   /**
    * Format calendar event
    */
-  private formatCalendarEvent(session: TpaSession, event: any, sessionInfo: any): string {
+  private formatCalendarEvent(session: TpaSession, event: any, sessionInfo: any, isTomorrow: boolean = false): string {
     const logger = session.logger; // Use session logger to have session-specific logs with userId correlation.
     logger.debug({ event, sessionInfo }, `Formatting calendar event for session ${session.userId}`);
 
@@ -489,7 +519,8 @@ class DashboardServer extends TpaServer {
         ? event.title.substring(0, 7).trim() + '...'
         : event.title;
 
-      return `${title} @ ${formattedTime}`;
+      const prefix = isTomorrow ? 'tmr @ ' : '';
+      return `${prefix}${title} @ ${formattedTime}`;
     } catch (error) {
       logger.error(error, `Error formating calendar event for session ${session.userId}`);
       logger.error({ sessionInfo, event }, `Error formating calendar event for session ${session.userId}`);
