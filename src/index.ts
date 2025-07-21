@@ -443,7 +443,11 @@ class DashboardServer extends TpaServer {
       // Always restrict: userDatetime > timezone > system time
       let isTomorrow = false;
       let startInTz = start;
-      if (sessionInfo.userDatetime) {
+      if (event.timeZone) {
+        const tz = event.timeZone;
+        now = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
+        startInTz = new Date(new Date(event.dtStart).toLocaleString('en-US', { timeZone: tz }));
+      } else if (sessionInfo.userDatetime) {
         now = new Date(sessionInfo.userDatetime);
         startInTz = new Date(event.dtStart);
       } else if (sessionInfo.latestLocation?.timezone) {
