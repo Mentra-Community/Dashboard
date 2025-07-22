@@ -476,8 +476,8 @@ class DashboardServer extends TpaServer {
         // If event has an end time, hide if now > end
         if (end && now > end) {
           // Don't show expired event
-        } else if (now > new Date(startInTz.getTime() + tenMinutes)) {
-          // Hide if more than 10 minutes past start
+        } else if (now > startInTz) {
+          // Hide if now is past the event start time
         } else {
           return this.formatCalendarEvent(session, event, sessionInfo, isTomorrow);
         }
