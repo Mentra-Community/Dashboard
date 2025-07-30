@@ -249,9 +249,9 @@ class DashboardServer extends AppServer {
     });
 
     // Handle head position changes
-    session.onHeadPosition((data) => {
+    session.onHeadPosition(async (data) => {
       if (data.position === 'up') {
-        this.incrementTopNotificationsViewCount(session, sessionId);
+        await this.incrementTopNotificationsViewCount(session, sessionId);
         this.updateDashboardSections(session, sessionId);
       }
     });
@@ -590,22 +590,18 @@ class DashboardServer extends AppServer {
     // Add to cache
     sessionInfo.phoneNotificationCache.push(newNotification);
 
-    // Enforce maximum cache size of 50 - remove oldest notifications if exceeded
-    const MAX_NOTIFICATION_CACHE_SIZE = 50;
-    if (sessionInfo.phoneNotificationCache.length > MAX_NOTIFICATION_CACHE_SIZE) {
-      const removedCount = sessionInfo.phoneNotificationCache.length - MAX_NOTIFICATION_CACHE_SIZE;
-      sessionInfo.phoneNotificationCache.splice(0, removedCount); // Remove oldest notifications
-      logger.debug(`Removed ${removedCount} oldest notifications to maintain cache size limit of ${MAX_NOTIFICATION_CACHE_SIZE}`);
-    }
+    // Clean up notification cache
+    this.cleanupNotificationCache(sessionInfo, logger);
 
     // Use NotificationSummaryAgent to process and rank notifications
     try {
-      // Sanitize all notifications before sending to agent
+      // Sanitize all notifications before sending to agent, including viewCount
       const sanitizedNotifications = sessionInfo.phoneNotificationCache.map(n => ({
         ...n,
         title: n.title.replace(/\n/g, ' '),
         content: n.content.replace(/\n/g, ' '),
-        text: n.text ? n.text.replace(/\n/g, ' ') : ''
+        text: n.text ? n.text.replace(/\n/g, ' ') : '',
+        viewCount: n.viewCount || 0
       }));
       const ranking = await this.notificationSummaryAgent.handleContext({
         notifications: sanitizedNotifications
@@ -654,12 +650,13 @@ class DashboardServer extends AppServer {
       // Re-process notifications with the agent to update ranking
       if (sessionInfo.phoneNotificationCache.length > 0) {
         try {
-          // Sanitize all notifications before sending to agent
+          // Sanitize all notifications before sending to agent, including viewCount
           const sanitizedNotifications = sessionInfo.phoneNotificationCache.map(n => ({
             ...n,
             title: n.title.replace(/\n/g, ' '),
             content: n.content.replace(/\n/g, ' '),
-            text: n.text ? n.text.replace(/\n/g, ' ') : ''
+            text: n.text ? n.text.replace(/\n/g, ' ') : '',
+            viewCount: n.viewCount || 0
           }));
           const ranking = await this.notificationSummaryAgent.handleContext({
             notifications: sanitizedNotifications
@@ -697,7 +694,7 @@ class DashboardServer extends AppServer {
   /**
    * Increment view count for top notifications
    */
-  private incrementTopNotificationsViewCount(session: AppSession, sessionId: string): void {
+  private async incrementTopNotificationsViewCount(session: AppSession, sessionId: string): Promise<void> {
     const logger = session.logger;
     const sessionInfo = this._activeSessions.get(sessionId);
     if (!sessionInfo) return;
@@ -729,7 +726,71 @@ class DashboardServer extends AppServer {
         if (updatedViewCounts.length > 0) {
             logger.debug({ viewCounts: updatedViewCounts }, `Incremented view count for top notifications`);
         }
+
+        // Clean up notification cache and update if modified
+        const cacheModified = this.cleanupNotificationCache(sessionInfo, logger);
+        if (cacheModified) {
+          // Re-process notifications with the agent to update ranking
+          try {
+            // Sanitize all notifications before sending to agent, including viewCount
+            const sanitizedNotifications = sessionInfo.phoneNotificationCache.map(n => ({
+              ...n,
+              title: n.title.replace(/\n/g, ' '),
+              content: n.content.replace(/\n/g, ' '),
+              text: n.text ? n.text.replace(/\n/g, ' ') : '',
+              viewCount: n.viewCount || 0
+            }));
+            const ranking = await this.notificationSummaryAgent.handleContext({
+              notifications: sanitizedNotifications
+            });
+            sessionInfo.phoneNotificationRanking = ranking.map((n: any) => ({
+              summary: n.summary,
+              timestamp: new Date(n.timestamp).getTime() || Date.now(),
+              uuid: n.uuid
+            }));
+            logger.debug('NotificationSummaryAgent ranking updated after cleanup:', { ranking });
+          } catch (error) {
+            logger.error(error, `Error updating NotificationSummaryAgent ranking after cleanup for session ${session.userId}`);
+            // fallback: use manual summary
+            sessionInfo.phoneNotificationRanking = sessionInfo.phoneNotificationCache
+              .sort((a, b) => b.timestamp - a.timestamp)
+              .map(notification => ({
+                summary: `${notification.title}: ${notification.content}`,
+                timestamp: notification.timestamp,
+                uuid: notification.uuid
+              }));
+          }
+        }
     }
+  }
+
+  /**
+   * Clean up notification cache by removing over-viewed and old notifications
+   * @returns true if cache was modified, false otherwise
+   */
+  private cleanupNotificationCache(sessionInfo: any, logger: any): boolean {
+    let cacheModified = false;
+
+    // Enforce maximum cache size of 50 - remove oldest notifications if exceeded
+    const MAX_NOTIFICATION_CACHE_SIZE = 50;
+    if (sessionInfo.phoneNotificationCache.length > MAX_NOTIFICATION_CACHE_SIZE) {
+      const removedCount = sessionInfo.phoneNotificationCache.length - MAX_NOTIFICATION_CACHE_SIZE;
+      sessionInfo.phoneNotificationCache.splice(0, removedCount); // Remove oldest notifications
+      logger.debug(`Removed ${removedCount} oldest notifications to maintain cache size limit of ${MAX_NOTIFICATION_CACHE_SIZE}`);
+      cacheModified = true;
+    }
+
+    // Remove notifications that have been viewed more than 5 times
+    const MAX_VIEW_COUNT 5;
+    const overViewedNotifications = sessionInfo.phoneNotificationCache.filter(n => (n.viewCount || 0) > MAX_VIEW_COUNT);
+    if (overViewedNotifications.length > 0) {
+      const removedUuids = overViewedNotifications.map(n => n.uuid);
+      sessionInfo.phoneNotificationCache = sessionInfo.phoneNotificationCache.filter(n => (n.viewCount || 0) <= MAX_VIEW_COUNT);
+      logger.debug(`Removed ${overViewedNotifications.length} over-viewed notifications (viewCount > ${MAX_VIEW_COUNT}): ${removedUuids.join(', ')}`);
+      cacheModified = true;
+    }
+
+    return cacheModified;
   }
 
   /**

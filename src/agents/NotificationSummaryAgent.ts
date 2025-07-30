@@ -37,6 +37,7 @@ Criteria of Importance:
   - Exclude any system notifications that aren't related to low phone battery.
   - Ensure the output list does not include duplicate or overly similar notifications.
   - Prioritize notifications that are more recent over older notifications.
+  - Prioritize notifications that have been viewed fewer times (lower viewCount) over those viewed more frequently.
 
 Sorting:
   - The output array must be sorted so that rank=1 is the first item, rank=2 is the second, and so on.
