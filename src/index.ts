@@ -588,6 +588,14 @@ class DashboardServer extends AppServer {
     // Add to cache
     sessionInfo.phoneNotificationCache.push(newNotification);
 
+    // Enforce maximum cache size of 50 - remove oldest notifications if exceeded
+    const MAX_NOTIFICATION_CACHE_SIZE = 50;
+    if (sessionInfo.phoneNotificationCache.length > MAX_NOTIFICATION_CACHE_SIZE) {
+      const removedCount = sessionInfo.phoneNotificationCache.length - MAX_NOTIFICATION_CACHE_SIZE;
+      sessionInfo.phoneNotificationCache.splice(0, removedCount); // Remove oldest notifications
+      logger.debug(`Removed ${removedCount} oldest notifications to maintain cache size limit of ${MAX_NOTIFICATION_CACHE_SIZE}`);
+    }
+
     // Use NotificationSummaryAgent to process and rank notifications
     try {
       // Sanitize all notifications before sending to agent
