@@ -6,35 +6,42 @@
  */
 import path from "path";
 import {
-  TpaServer,
-  TpaSession,
+  AppServer,
+  AppSession,
   StreamType,
   DashboardMode,
   GlassesBatteryUpdate,
   LocationUpdate,
   PhoneNotification,
+  PhoneNotificationDismissed,
   CalendarEvent
-} from '@augmentos/sdk';
+} from '@mentra/sdk';
 import { wrapText } from './text-utils';
 import tzlookup from 'tz-lookup';
 import { v4 as uuidv4 } from 'uuid';
 import { WeatherModule } from './dashboard-modules/WeatherModule';
 import { NotificationSummaryAgent } from './agents';
-import { logger } from '@augmentos/sdk';
+import { logger } from '@mentra/sdk';
 
 // Configuration constants
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 80;
-const PACKAGE_NAME = "system.augmentos.dashboard";
-const API_KEY = process.env.AUGMENTOS_API_KEY || '';
+const PACKAGE_NAME = process.env.PACKAGE_NAME;
+const API_KEY = process.env.MENTRAOS_API_KEY;
+
+// Validate required environment variables
+if (!PACKAGE_NAME) {
+  logger.error({ tpa: PACKAGE_NAME, packageName: PACKAGE_NAME }, "PACKAGE_NAME environment variable is required.");
+  process.exit(1);
+}
 
 // Validate API key
 if (!API_KEY) {
-  logger.error({ tpa: PACKAGE_NAME, packageName: PACKAGE_NAME }, "AUGMENTOS_API_KEY environment variable is required.");
+  logger.error({ tpa: PACKAGE_NAME, packageName: PACKAGE_NAME }, "MENTRAOS_API_KEY environment variable is required.");
   process.exit(1);
 }
 
 // List of notification app names to ignore
-const notificationAppBlackList = ['youtube', 'augment', 'maps'];
+const notificationAppBlackList = ['youtube', 'mentra', 'maps'];
 
 /**
  * Dashboard Manager TPA - Main application class
@@ -43,13 +50,13 @@ const notificationAppBlackList = ['youtube', 'augment', 'maps'];
  * display and dashboard mode control. It uses the AugmentOS SDK's
  * dashboard.system API to update dashboard sections and control modes.
  */
-class DashboardServer extends TpaServer {
+class DashboardServer extends AppServer {
   // Keep track of active sessions with their metadata
   private _activeSessions: Map<string, {
     userId: string;
     batteryLevel?: number;
     latestLocation?: { latitude: number; longitude: number; timezone?: string };
-    phoneNotificationCache: { title: string; content: string; timestamp: number; uuid: string }[];
+    phoneNotificationCache: { title: string; content: string; timestamp: number; uuid: string; appName?: string; text?: string }[];
     phoneNotificationRanking?: { summary: string; timestamp: number }[];
     calendarEvent?: any;
     weatherCache?: { timestamp: number; data: string };
@@ -62,9 +69,9 @@ class DashboardServer extends TpaServer {
 
   constructor() {
     super({
-      packageName: PACKAGE_NAME,
+      packageName: PACKAGE_NAME!,
       port: PORT,
-      apiKey: API_KEY,
+      apiKey: API_KEY!,
       publicDir: path.join(__dirname, "./public"),
     });
 
@@ -79,7 +86,7 @@ class DashboardServer extends TpaServer {
   /**
    * Called by TpaServer when a new session is created
    */
-  protected async onSession(session: TpaSession, sessionId: string, userId: string): Promise<void> {
+  protected async onSession(session: AppSession, sessionId: string, userId: string): Promise<void> {
     const logger = session.logger; // Use session logger to have session-specific logs with userId correlation
 
     logger.info(`🚀 New dashboard session started for user ${userId}`, {
@@ -156,7 +163,7 @@ class DashboardServer extends TpaServer {
       logger.info(`✅ Dashboard update interval scheduled for session ${sessionId}`);
     }
 
-    const useMetric = session.settings.getAugmentosSetting('metricSystemEnabled'); // Get from session settings
+    const useMetric = session.settings.getMentraosSetting('metricSystemEnabled'); // Get from session settings
     logger.info(`[Dashboard] Metric system enabled: ${useMetric}`);
     logger.info(`✅ Dashboard session setup completed for user ${userId}`, {
       sessionId,
@@ -167,7 +174,7 @@ class DashboardServer extends TpaServer {
   /**
    * Set up handlers for settings changes
    */
-  private setupSettingsHandlers(session: TpaSession, sessionId: string): void {
+  private setupSettingsHandlers(session: AppSession, sessionId: string): void {
     const logger = session.logger; // Use session logger to have session-specific logs with userId correlation
 
     // Listen for specific setting changes
@@ -179,7 +186,7 @@ class DashboardServer extends TpaServer {
     });
 
     // Listen for AugmentOS metric system changes (using new event system)
-    session.settings.onAugmentosSettingChange('metricSystemEnabled', (newValue, oldValue) => {
+    session.settings.onMentraosSettingChange('metricSystemEnabled', (newValue, oldValue) => {
       logger.info(`AugmentOS metricSystemEnabled changed from ${oldValue} to ${newValue} for session ${sessionId}`);
 
       // Force refresh weather data with new unit setting
@@ -224,12 +231,16 @@ class DashboardServer extends TpaServer {
   /**
    * Set up event handlers for a session
    */
-  private setupEventHandlers(session: TpaSession, sessionId: string): void {
+  private setupEventHandlers(session: AppSession, sessionId: string): void {
     const logger = session.logger; // Use session logger to have session-specific logs with userId correlation
 
     // Handle phone notifications
     session.onPhoneNotifications((data) => {
       this.handlePhoneNotification(session, sessionId, data);
+    });
+
+    session.onPhoneNotificationDismissed((data) => {
+      this.handlePhoneNotificationDismissed(session, sessionId, data);
     });
 
     // Handle location updates
@@ -270,7 +281,7 @@ class DashboardServer extends TpaServer {
   /**
    * Initialize dashboard content and state
    */
-  private initializeDashboard(session: TpaSession, sessionId: string): void {
+  private initializeDashboard(session: AppSession, sessionId: string): void {
     const logger = session.logger; // Use session logger to have session-specific logs with userId correlation
 
     const sessionInfo = this._activeSessions.get(sessionId);
@@ -304,7 +315,7 @@ class DashboardServer extends TpaServer {
   /**
    * Update all dashboard sections with current data
    */
-  private updateDashboardSections(session: TpaSession, sessionId: string): void {
+  private updateDashboardSections(session: AppSession, sessionId: string): void {
     const logger = session.logger; // Use session logger to have session-specific logs with userId correlation
 
     logger.info(`🔄 Updating dashboard sections for session ${sessionId}`);
@@ -342,7 +353,7 @@ class DashboardServer extends TpaServer {
   /**
    * Format time section text
    */
-  private formatTimeSection(session: TpaSession, sessionInfo: any): string {
+  private formatTimeSection(session: AppSession, sessionInfo: any): string {
     const logger = session.logger;
     logger.debug({ sessionInfo }, `319 Format time section: ${sessionInfo.userDatetime}`);
     // 1. Use userDatetime if present
@@ -431,7 +442,7 @@ class DashboardServer extends TpaServer {
   /**
    * Format status section text
    */
-  private formatStatusSection(session: TpaSession, sessionInfo: any): string {
+  private formatStatusSection(session: AppSession, sessionInfo: any): string {
     // Prioritize calendar events if available and not expired
     if (sessionInfo.calendarEvent) {
       const event = sessionInfo.calendarEvent;
@@ -497,7 +508,7 @@ class DashboardServer extends TpaServer {
   /**
    * Format calendar event
    */
-  private formatCalendarEvent(session: TpaSession, event: any, sessionInfo: any, isTomorrow: boolean = false): string {
+  private formatCalendarEvent(session: AppSession, event: any, sessionInfo: any, isTomorrow: boolean = false): string {
     const logger = session.logger; // Use session logger to have session-specific logs with userId correlation.
     logger.debug({ event, sessionInfo }, `Formatting calendar event for session ${session.userId}`);
 
@@ -538,7 +549,7 @@ class DashboardServer extends TpaServer {
   /**
    * Handle phone notification event
    */
-  private async handlePhoneNotification(session: TpaSession, sessionId: string, data: PhoneNotification): Promise<void> {
+  private async handlePhoneNotification(session: AppSession, sessionId: string, data: PhoneNotification): Promise<void> {
     const logger = session.logger; // Use session logger to have session-specific logs with userId correlation
     logger.debug({ data, function: "handlePhoneNotification" }, `handlePhoneNotification for session ${sessionId}`);
 
@@ -555,12 +566,12 @@ class DashboardServer extends TpaServer {
 
     // Add notification to cache
     const newNotification = {
-      title: data.title || 'No Title',
-      content: data.content || '',
+      title: (data.title || 'No Title').replace(/\n/g, ' '),
+      content: (data.content || '').replace(/\n/g, ' '),
       timestamp: Date.now(),
       uuid: uuidv4(),
       appName: data.app || '',
-      text: data.content || ''
+      text: (data.content || '').replace(/\n/g, ' ')
     };
 
     // Prevent duplicate notifications
@@ -579,8 +590,15 @@ class DashboardServer extends TpaServer {
 
     // Use NotificationSummaryAgent to process and rank notifications
     try {
+      // Sanitize all notifications before sending to agent
+      const sanitizedNotifications = sessionInfo.phoneNotificationCache.map(n => ({
+        ...n,
+        title: n.title.replace(/\n/g, ' '),
+        content: n.content.replace(/\n/g, ' '),
+        text: n.text ? n.text.replace(/\n/g, ' ') : ''
+      }));
       const ranking = await this.notificationSummaryAgent.handleContext({
-        notifications: sessionInfo.phoneNotificationCache
+        notifications: sanitizedNotifications
       });
       sessionInfo.phoneNotificationRanking = ranking.map((n: any) => ({
         summary: n.summary,
@@ -602,10 +620,70 @@ class DashboardServer extends TpaServer {
     this.updateDashboardSections(session, sessionId);
   }
 
+  private async handlePhoneNotificationDismissed(session: AppSession, sessionId: string, data: PhoneNotificationDismissed): Promise<void> {
+    const logger = session.logger; // Use session logger to have session-specific logs with userId correlation
+    logger.debug({ data, function: "handlePhoneNotificationDismissed" }, `handlePhoneNotificationDismissed for session ${sessionId}`);
+
+    // Check if session exists
+    const sessionInfo = this._activeSessions.get(sessionId);
+    if (!sessionInfo) return;
+
+    // Find and remove the dismissed notification from cache
+    const dismissedIndex = sessionInfo.phoneNotificationCache.findIndex(notification => 
+      notification.title === (data.title || '').replace(/\n/g, ' ') && 
+      notification.content === (data.content || '').replace(/\n/g, ' ') &&
+      notification.appName === data.app
+    );
+
+    if (dismissedIndex !== -1) {
+      logger.debug(`Removing dismissed notification from cache: ${data.title} - ${data.content}`);
+      sessionInfo.phoneNotificationCache.splice(dismissedIndex, 1);
+      
+      // Re-process notifications with the agent to update ranking
+      if (sessionInfo.phoneNotificationCache.length > 0) {
+        try {
+          // Sanitize all notifications before sending to agent
+          const sanitizedNotifications = sessionInfo.phoneNotificationCache.map(n => ({
+            ...n,
+            title: n.title.replace(/\n/g, ' '),
+            content: n.content.replace(/\n/g, ' '),
+            text: n.text ? n.text.replace(/\n/g, ' ') : ''
+          }));
+          const ranking = await this.notificationSummaryAgent.handleContext({
+            notifications: sanitizedNotifications
+          });
+          sessionInfo.phoneNotificationRanking = ranking.map((n: any) => ({
+            summary: n.summary,
+            timestamp: new Date(n.timestamp).getTime() || Date.now()
+          }));
+          logger.debug('NotificationSummaryAgent ranking updated after dismissal:', { ranking });
+        } catch (error) {
+          logger.error(error, `Error updating NotificationSummaryAgent ranking after dismissal for session ${session.userId}`);
+          // fallback: use manual summary
+          sessionInfo.phoneNotificationRanking = sessionInfo.phoneNotificationCache
+            .sort((a, b) => b.timestamp - a.timestamp)
+            .map(notification => ({
+              summary: `${notification.title}: ${notification.content}`,
+              timestamp: notification.timestamp
+            }));
+        }
+      } else {
+        // No notifications left, clear ranking
+        sessionInfo.phoneNotificationRanking = [];
+      }
+
+      // Update dashboard sections immediately
+      this.updateDashboardSections(session, sessionId);
+      logger.info(`Notification dismissed and removed from dashboard for session ${sessionId}`);
+    } else {
+      logger.debug(`Dismissed notification not found in cache: ${data.title} - ${data.content}`);
+    }
+  }
+
   /**
    * Fetch weather data for a given location
    */
-  private async fetchWeatherData(session: TpaSession, sessionId: string, lat: number, lng: number, forceUpdate: boolean = false): Promise<void> {
+  private async fetchWeatherData(session: AppSession, sessionId: string, lat: number, lng: number, forceUpdate: boolean = false): Promise<void> {
     const logger = session.logger; // Use session logger to have session-specific logs with userId correlation.
     logger.debug({ lat, lng, forceUpdate, function: "fetchWeatherData" }, `Fetching weather data for session ${sessionId}`);
     const sessionInfo = this._activeSessions.get(sessionId);
@@ -624,7 +702,7 @@ class DashboardServer extends TpaServer {
 
         if (weatherData) {
           // Use metricSystemEnabled from session settings to decide units
-          const useMetric = session.settings.getAugmentosSetting('metricSystemEnabled');
+          const useMetric = session.settings.getMentraosSetting('metricSystemEnabled');
           logger.debug(`[Weather] Metric system enabled: ${useMetric}`);
           const temp = useMetric ? weatherData.temp_c : weatherData.temp_f;
           const unit = useMetric ? '°C' : '°F';
@@ -648,7 +726,7 @@ class DashboardServer extends TpaServer {
   /**
    * Handle location update event
    */
-  private async handleLocationUpdate(session: TpaSession, sessionId: string, data: LocationUpdate): Promise<void> {
+  private async handleLocationUpdate(session: AppSession, sessionId: string, data: LocationUpdate): Promise<void> {
     const logger = session.logger; // Use session logger to have session-specific logs with userId correlation.
     logger.debug({ data, function: "handleLocationUpdate" }, `handleLocationUpdate for session ${sessionId}`);
 
@@ -691,7 +769,7 @@ class DashboardServer extends TpaServer {
   /**
    * Handle battery update event
    */
-  private handleBatteryUpdate(session: TpaSession, sessionId: string, data: GlassesBatteryUpdate): void {
+  private handleBatteryUpdate(session: AppSession, sessionId: string, data: GlassesBatteryUpdate): void {
     const logger = session.logger; // Use session logger to have session-specific logs with userId correlation.
     logger.debug({ data, function: "handleBatteryUpdate" }, `handleBatteryUpdate for session ${sessionId}`);
     const sessionInfo = this._activeSessions.get(sessionId);
@@ -707,7 +785,7 @@ class DashboardServer extends TpaServer {
   /**
    * Handle calendar event
    */
-  private handleCalendarEvent(session: TpaSession, sessionId: string, event: CalendarEvent): void {
+  private handleCalendarEvent(session: AppSession, sessionId: string, event: CalendarEvent): void {
     const logger = session.logger; // Use session logger to have session-specific logs with userId correlation.
     logger.debug({ event, function: "handleCalendarEvent" }, `handleCalendarEvent for session ${sessionId}`);
 

@@ -1,5 +1,5 @@
 {
-  "name": "@augmentos/dashboard",
+  "name": "@mentra/dashboard",
   "version": "1.0.0",
   "main": "dist/index.js",
   "scripts": {
@@ -9,7 +9,7 @@
     "ngrok": "ngrok http --url=dash-aos.ngrok.app 8003"
   },
   "dependencies": {
-    "@augmentos/sdk": "1.1.15",
+    "@mentra/sdk": "2.1.13",
     "@google/generative-ai": "^0.3.0",
     "@types/cookie-parser": "^1.4.8",
     "@types/cors": "^2.8.17",

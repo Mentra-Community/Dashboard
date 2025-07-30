@@ -1,4 +1,4 @@
-import { TpaSession } from '@augmentos/sdk';
+import { AppSession } from '@mentra/sdk';
 import axios from 'axios';
 import dotenv from 'dotenv';
 dotenv.config();
@@ -25,7 +25,7 @@ export class WeatherModule {
   /**
    * Fetch the current weather condition and temperature in Fahrenheit.
    */
-  public async fetchWeatherForecast(session: TpaSession, latitude: number, longitude: number): Promise<WeatherSummary | null> {
+  public async fetchWeatherForecast(session: AppSession, latitude: number, longitude: number): Promise<WeatherSummary | null> {
     const logger = session.logger;
     const url = `${this.baseUrl}/data/3.0/onecall?lat=${latitude}&lon=${longitude}&exclude=minutely,hourly,daily,alerts&units=imperial&appid=${this.apiKey}`;
     logger.info({ latitude, longitude }, `🌤️ Fetching weather data for lat=${latitude}, lon=${longitude}`);
