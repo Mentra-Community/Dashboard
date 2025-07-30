@@ -781,7 +781,7 @@ class DashboardServer extends AppServer {
     }
 
     // Remove notifications that have been viewed more than 5 times
-    const MAX_VIEW_COUNT 5;
+    const MAX_VIEW_COUNT = 5;
     const overViewedNotifications = sessionInfo.phoneNotificationCache.filter(n => (n.viewCount || 0) > MAX_VIEW_COUNT);
     if (overViewedNotifications.length > 0) {
       const removedUuids = overViewedNotifications.map(n => n.uuid);
