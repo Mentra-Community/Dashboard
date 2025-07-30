@@ -56,8 +56,8 @@ class DashboardServer extends AppServer {
     userId: string;
     batteryLevel?: number;
     latestLocation?: { latitude: number; longitude: number; timezone?: string };
-    phoneNotificationCache: { title: string; content: string; timestamp: number; uuid: string; appName?: string; text?: string }[];
-    phoneNotificationRanking?: { summary: string; timestamp: number }[];
+    phoneNotificationCache: { title: string; content: string; timestamp: number; uuid: string; appName?: string; text?: string, viewCount: number }[];
+    phoneNotificationRanking?: { summary: string; timestamp: number; uuid: string }[];
     calendarEvent?: any;
     weatherCache?: { timestamp: number; data: string };
     dashboardMode: DashboardMode;
@@ -251,6 +251,7 @@ class DashboardServer extends AppServer {
     // Handle head position changes
     session.onHeadPosition((data) => {
       if (data.position === 'up') {
+        this.incrementTopNotificationsViewCount(session, sessionId);
         this.updateDashboardSections(session, sessionId);
       }
     });
@@ -571,7 +572,8 @@ class DashboardServer extends AppServer {
       timestamp: Date.now(),
       uuid: uuidv4(),
       appName: data.app || '',
-      text: (data.content || '').replace(/\n/g, ' ')
+      text: (data.content || '').replace(/\n/g, ' '),
+      viewCount: 0
     };
 
     // Prevent duplicate notifications
@@ -610,7 +612,8 @@ class DashboardServer extends AppServer {
       });
       sessionInfo.phoneNotificationRanking = ranking.map((n: any) => ({
         summary: n.summary,
-        timestamp: new Date(n.timestamp).getTime() || Date.now()
+        timestamp: new Date(n.timestamp).getTime() || Date.now(),
+        uuid: n.uuid
       }));
       logger.debug('NotificationSummaryAgent ranking:', { ranking });
     } catch (error) {
@@ -620,7 +623,8 @@ class DashboardServer extends AppServer {
         .sort((a, b) => b.timestamp - a.timestamp)
         .map(notification => ({
           summary: `${notification.title}: ${notification.content}`,
-          timestamp: notification.timestamp
+          timestamp: notification.timestamp,
+          uuid: notification.uuid
         }));
     }
 
@@ -662,7 +666,8 @@ class DashboardServer extends AppServer {
           });
           sessionInfo.phoneNotificationRanking = ranking.map((n: any) => ({
             summary: n.summary,
-            timestamp: new Date(n.timestamp).getTime() || Date.now()
+            timestamp: new Date(n.timestamp).getTime() || Date.now(),
+            uuid: n.uuid
           }));
           logger.debug('NotificationSummaryAgent ranking updated after dismissal:', { ranking });
         } catch (error) {
@@ -672,7 +677,8 @@ class DashboardServer extends AppServer {
             .sort((a, b) => b.timestamp - a.timestamp)
             .map(notification => ({
               summary: `${notification.title}: ${notification.content}`,
-              timestamp: notification.timestamp
+              timestamp: notification.timestamp,
+              uuid: notification.uuid
             }));
         }
       } else {
@@ -685,6 +691,44 @@ class DashboardServer extends AppServer {
       logger.info(`Notification dismissed and removed from dashboard for session ${sessionId}`);
     } else {
       logger.debug(`Dismissed notification not found in cache: ${data.title} - ${data.content}`);
+    }
+  }
+
+  /**
+   * Increment view count for top notifications
+   */
+  private incrementTopNotificationsViewCount(session: AppSession, sessionId: string): void {
+    const logger = session.logger;
+    const sessionInfo = this._activeSessions.get(sessionId);
+    if (!sessionInfo) return;
+
+    // Determine which notifications are at the top
+    const topRankedNotifications = (sessionInfo.phoneNotificationRanking || []).slice(0, 2);
+
+    const uuidsToIncrement: string[] = [];
+    if (topRankedNotifications.length > 0) {
+        topRankedNotifications.forEach(n => n.uuid && uuidsToIncrement.push(n.uuid));
+    } else {
+        // Fallback to top 2 from raw cache if no ranking.
+        // Notifications are sorted by most recent first in the fallback case.
+        const topCached = sessionInfo.phoneNotificationCache
+          .sort((a, b) => b.timestamp - a.timestamp)
+          .slice(0, 2);
+        topCached.forEach(n => uuidsToIncrement.push(n.uuid));
+    }
+
+    if (uuidsToIncrement.length > 0) {
+        const updatedViewCounts: {uuid: string, viewCount: number}[] = [];
+        uuidsToIncrement.forEach(uuid => {
+            const notification = sessionInfo.phoneNotificationCache.find(n => n.uuid === uuid);
+            if (notification) {
+                notification.viewCount = (notification.viewCount || 0) + 1;
+                updatedViewCounts.push({uuid: notification.uuid, viewCount: notification.viewCount});
+            }
+        });
+        if (updatedViewCounts.length > 0) {
+            logger.debug({ viewCounts: updatedViewCounts }, `Incremented view count for top notifications`);
+        }
     }
   }
 
