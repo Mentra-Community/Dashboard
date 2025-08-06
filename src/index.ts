@@ -163,6 +163,14 @@ class DashboardServer extends AppServer {
       logger.info(`✅ Dashboard update interval scheduled for session ${sessionId}`);
     }
 
+    session.location.getLatestLocation({accuracy: "high"}).then(location => {
+      if (location) {
+        this.handleLocationUpdate(session, sessionId, location);
+      }
+    }, error => {
+      console.warn(`[Session ${sessionId}]: Error getting location:`, error);
+    });
+
     const useMetric = session.settings.getMentraosSetting('metricSystemEnabled'); // Get from session settings
     logger.info(`[Dashboard] Metric system enabled: ${useMetric}`);
     logger.info(`✅ Dashboard session setup completed for user ${userId}`, {
@@ -244,7 +252,8 @@ class DashboardServer extends AppServer {
     });
 
     // Handle location updates
-    session.on(StreamType.LOCATION_UPDATE, (data: LocationUpdate) => {
+    session.location.subscribeToStream({ accuracy: "standard" }, (data: LocationUpdate) => {
+      console.log("Location update", data);
       this.handleLocationUpdate(session, sessionId, data);
     });
 
@@ -515,7 +524,8 @@ class DashboardServer extends AppServer {
 
     try {
       // PRIORITIZE event.timeZone, then user location, then system time
-      const timezone = event.timeZone || sessionInfo.latestLocation?.timezone;
+      const timezone = sessionInfo.latestLocation?.timezone || event.timeZone;
+
 
       logger.debug({ timezone }, `Calendar event timezone: ${timezone}`);
 
