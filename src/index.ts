@@ -23,6 +23,27 @@ import { WeatherModule } from './dashboard-modules/WeatherModule';
 import { NotificationSummaryAgent } from './agents';
 import { logger } from '@mentra/sdk';
 
+/**
+ * Extract timezone offset from ISO 8601 datetime string
+ * @param isoString - ISO datetime string like "2025-08-06T11:54:42+08:00"
+ * @returns timezone offset string or null if not found
+ */
+function extractTimezoneFromISO(isoString: string): string | null {
+  if (!isoString) return null;
+  
+  // Match timezone offset patterns: +08:00, -05:00, +08, -05, Z
+  const timezoneMatch = isoString.match(/([+-]\d{2}:?\d{0,2}|Z)$/);
+  if (timezoneMatch) {
+    const offset = timezoneMatch[1];
+    if (offset === 'Z') return 'UTC';
+    
+    // Return the offset as-is - JavaScript supports this format
+    return offset;
+  }
+  
+  return null;
+}
+
 // Configuration constants
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 80;
 const PACKAGE_NAME = process.env.PACKAGE_NAME;
@@ -464,13 +485,13 @@ class DashboardServer extends AppServer {
       // Always restrict: userDatetime > timezone > system time
       let isTomorrow = false;
       let startInTz = start;
-      if (event.timeZone) {
-        const tz = event.timeZone;
-        now = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
-        startInTz = new Date(new Date(event.dtStart).toLocaleString('en-US', { timeZone: tz }));
-      } else if (sessionInfo.userDatetime) {
+      if (sessionInfo.userDatetime) {
         now = new Date(sessionInfo.userDatetime);
         startInTz = new Date(event.dtStart);
+      } else if (event.timeZone) {
+        const tz = sessionInfo.latestLocation?.timezone || event.timeZone;
+        now = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
+        startInTz = new Date(new Date(event.dtStart).toLocaleString('en-US', { timeZone: tz }));
       } else if (sessionInfo.latestLocation?.timezone) {
         const tz = sessionInfo.latestLocation.timezone;
         now = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
@@ -523,8 +544,9 @@ class DashboardServer extends AppServer {
     logger.debug({ event, sessionInfo }, `Formatting calendar event for session ${session.userId}`);
 
     try {
-      // PRIORITIZE event.timeZone, then user location, then system time
-      const timezone = sessionInfo.latestLocation?.timezone || event.timeZone;
+      // PRIORITIZE: userDatetime timezone, then event.timeZone, then user location, then system time
+      const userTimezone = sessionInfo.userDatetime ? extractTimezoneFromISO(sessionInfo.userDatetime) : null;
+      const timezone = userTimezone || event.timeZone || sessionInfo.latestLocation?.timezone;
 
 
       logger.debug({ timezone }, `Calendar event timezone: ${timezone}`);
