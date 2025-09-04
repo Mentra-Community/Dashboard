@@ -570,8 +570,8 @@ class DashboardServer extends AppServer {
         ? event.title.substring(0, 7).trim() + '...'
         : event.title;
 
-      const prefix = isTomorrow ? 'tmr @ ' : '';
-      return `${prefix}${title} @ ${formattedTime}`;
+      const timePrefix = isTomorrow ? 'tmr @ ' : '@ ';
+      return `${title} ${timePrefix}${formattedTime}`;
     } catch (error) {
       logger.error(error, `Error formating calendar event for session ${session.userId}`);
       logger.error({ sessionInfo, event }, `Error formating calendar event for session ${session.userId}`);
