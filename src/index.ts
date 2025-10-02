@@ -19,7 +19,7 @@ import {
 import { wrapText } from "./text-utils";
 import tzlookup from "tz-lookup";
 import { v4 as uuidv4 } from "uuid";
-import { WeatherModule } from "./dashboard-modules/WeatherModule";
+import { weatherService } from "./services/weather.service";
 import { NotificationSummaryAgent } from "./agents";
 import { logger } from "@mentra/sdk";
 
@@ -1075,22 +1075,16 @@ class DashboardServer extends AppServer {
       Date.now() - (sessionInfo.weatherCache.timestamp || 0) > 60 * 60 * 1000; // 1 hour
 
     // TODO(isaiah): remove this check when we have a proper weather module.
-    if (shouldFetchWeather || true) {
+    if (shouldFetchWeather) {
       try {
-        const weatherModule = new WeatherModule();
-        const weatherData = await weatherModule.fetchWeatherForecast(
-          session,
-          lat,
-          lng,
-        );
+        const weatherData = await weatherService.getWeather(session, lat, lng);
 
         if (weatherData) {
-          // Use metricSystemEnabled from session settings to decide units
           const useMetric = session.settings.getMentraosSetting(
             "metricSystemEnabled",
           );
           logger.debug(`[Weather] Metric system enabled: ${useMetric}`);
-          const temp = useMetric ? weatherData.temp_c : weatherData.temp_f;
+          const temp = useMetric ? weatherData.tempC : weatherData.tempF;
           const unit = useMetric ? "°C" : "°F";
 
           sessionInfo.weatherCache = {
