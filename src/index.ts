@@ -1068,7 +1068,6 @@ class DashboardServer extends AppServer {
     const sessionInfo = this._activeSessions.get(sessionId);
     if (!sessionInfo) return;
 
-    // TODO(isaiah): remove this check when we have a proper weather module.
     try {
       const weatherData = await weatherService.getWeather(session, lat, lng);
 
