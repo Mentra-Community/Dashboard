@@ -1068,38 +1068,30 @@ class DashboardServer extends AppServer {
     const sessionInfo = this._activeSessions.get(sessionId);
     if (!sessionInfo) return;
 
-    // Determine if we should fetch weather based on cache or forced update
-    const shouldFetchWeather =
-      forceUpdate ||
-      !sessionInfo.weatherCache ||
-      Date.now() - (sessionInfo.weatherCache.timestamp || 0) > 60 * 60 * 1000; // 1 hour
-
     // TODO(isaiah): remove this check when we have a proper weather module.
-    if (shouldFetchWeather) {
-      try {
-        const weatherData = await weatherService.getWeather(session, lat, lng);
+    try {
+      const weatherData = await weatherService.getWeather(session, lat, lng);
 
-        if (weatherData) {
-          const useMetric = session.settings.getMentraosSetting(
-            "metricSystemEnabled",
-          );
-          logger.debug(`[Weather] Metric system enabled: ${useMetric}`);
-          const temp = useMetric ? weatherData.tempC : weatherData.tempF;
-          const unit = useMetric ? "°C" : "°F";
+      if (weatherData) {
+        const useMetric = session.settings.getMentraosSetting(
+          "metricSystemEnabled",
+        );
+        logger.debug(`[Weather] Metric system enabled: ${useMetric}`);
+        const temp = useMetric ? weatherData.tempC : weatherData.tempF;
+        const unit = useMetric ? "°C" : "°F";
 
-          sessionInfo.weatherCache = {
-            timestamp: Date.now(),
-            data: `${weatherData.condition}, ${temp}${unit}`,
-          };
+        sessionInfo.weatherCache = {
+          timestamp: Date.now(),
+          data: `${weatherData.condition}, ${temp}${unit}`,
+        };
 
-          logger.debug(`Weather updated: ${sessionInfo.weatherCache.data}`);
+        logger.debug(`Weather updated: ${sessionInfo.weatherCache.data}`);
 
-          // Update dashboard with new weather info
-          this.updateDashboardSections(session, sessionId);
-        }
-      } catch (error) {
-        logger.error(error, `Error fetching weather for session ${sessionId}`);
+        // Update dashboard with new weather info
+        this.updateDashboardSections(session, sessionId);
       }
+    } catch (error) {
+      logger.error(error, `Error fetching weather for session ${sessionId}`);
     }
   }
 
