@@ -539,15 +539,7 @@ class DashboardServer extends AppServer {
    * Format battery section text
    */
   private formatBatterySection(sessionInfo: any): string {
-    if (sessionInfo.batteryLevel === undefined) {
-      return "$GBATT$";
-    }
-    if (sessionInfo.batteryLevel < 0 || sessionInfo.batteryLevel > 100) {
-      return "$GBATT$";
-    }
-    return typeof sessionInfo.batteryLevel === "number"
-      ? `${sessionInfo.batteryLevel}%`
-      : "$GBATT$";
+    return "$GBATT$";
   }
 
   /**
