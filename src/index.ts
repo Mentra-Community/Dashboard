@@ -23,27 +23,6 @@ import { weatherService } from "./services/weather.service";
 import { NotificationSummaryAgent } from "./agents";
 import { logger } from "@mentra/sdk";
 
-/**
- * Extract timezone offset from ISO 8601 datetime string
- * @param isoString - ISO datetime string like "2025-08-06T11:54:42+08:00"
- * @returns timezone offset string or null if not found
- */
-function extractTimezoneFromISO(isoString: string): string | null {
-  if (!isoString) return null;
-
-  // Match timezone offset patterns: +08:00, -05:00, +08, -05, Z
-  const timezoneMatch = isoString.match(/([+-]\d{2}:?\d{0,2}|Z)$/);
-  if (timezoneMatch) {
-    const offset = timezoneMatch[1];
-    if (offset === "Z") return "UTC";
-
-    // Return the offset as-is - JavaScript supports this format
-    return offset;
-  }
-
-  return null;
-}
-
 // Configuration constants
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 80;
 const PACKAGE_NAME = process.env.PACKAGE_NAME;
@@ -107,7 +86,7 @@ class DashboardServer extends AppServer {
       weatherCache?: { timestamp: number; data: string };
       dashboardMode: DashboardMode;
       updateInterval?: NodeJS.Timeout;
-      userDatetime?: string;
+      userTimezone?: string;
     }
   > = new Map();
 
@@ -166,27 +145,29 @@ class DashboardServer extends AppServer {
       timestamp: new Date().toISOString(),
     });
 
+    // Get user timezone from settings
+    const userTimezone = session.settings.getMentraOS<string>("userTimezone");
+    logger.info(`📊 User timezone from settings: ${userTimezone || "not set"}`);
+
     // Initialize session metadata
     this._activeSessions.set(sessionId, {
       userId,
       phoneNotificationCache: [],
       dashboardMode: DashboardMode.MAIN,
+      userTimezone: userTimezone || undefined,
     });
 
     logger.info(
       `📊 Dashboard session initialized with mode: ${DashboardMode.MAIN}`,
     );
 
-    // Listen for custom messages, including datetime updates
-    session.events.on("custom_message", (message: any) => {
-      logger.debug({ message }, `📊 Received custom message`);
-      if (message.action === "update_datetime") {
-        logger.debug(`📊 Updating user datetime for session ${sessionId}`);
-        const sessionInfo = this._activeSessions.get(sessionId);
-        if (sessionInfo) {
-          sessionInfo.userDatetime = message.payload.datetime;
-          this.updateDashboardSections(session, sessionId);
-        }
+    // Listen for timezone changes via settings system
+    session.settings.onMentraosChange<string>("userTimezone", (newTimezone) => {
+      logger.info(`📊 User timezone changed to: ${newTimezone}`);
+      const sessionInfo = this._activeSessions.get(sessionId);
+      if (sessionInfo) {
+        sessionInfo.userTimezone = newTimezone;
+        this.updateDashboardSections(session, sessionId);
       }
     });
 
@@ -480,44 +461,25 @@ class DashboardServer extends AppServer {
   private formatTimeSection(session: AppSession, sessionInfo: any): string {
     const logger = session.logger;
     logger.debug(
-      { sessionInfo },
-      `319 Format time section: ${sessionInfo.userDatetime}`,
+      {
+        userTimezone: sessionInfo.userTimezone,
+        locationTimezone: sessionInfo.latestLocation?.timezone,
+      },
+      `Format time section`,
     );
-    // 1. Use userDatetime if present
-    if (sessionInfo.userDatetime) {
+
+    // Get timezone: prefer userTimezone from settings, fall back to GPS-derived timezone
+    const timezone =
+      sessionInfo.userTimezone || sessionInfo.latestLocation?.timezone;
+
+    if (timezone) {
       try {
-        // Extract the time part from the ISO string, ignoring timezone
-        // Example: "2025-05-15T19:12:26+08:00" -> "19:12"
-        const match = sessionInfo.userDatetime.match(/T(\d{2}):(\d{2})/);
-        if (match) {
-          const monthDay = sessionInfo.userDatetime
-            .slice(5, 10)
-            .replace("-", "/"); // "05-15" -> "05/15"
-          let hour = parseInt(match[1], 10);
-          const minute = match[2];
-          const ampm = hour >= 12 ? "PM" : "AM";
-          hour = hour % 12;
-          if (hour === 0) hour = 12;
-          // Add leading zero if hour < 10
-          const hourStr = hour < 10 ? `0${hour}` : `${hour}`;
-          const formatted = `${monthDay}, ${hourStr}:${minute}`;
-          logger.info(`332 User datetime (12hr): ${formatted}`);
-          return `◌ ${formatted}`;
-        }
-      } catch (e) {
-        // fallback below
-      }
-    }
-    // 2. Use current time in user's timezone if available
-    if (sessionInfo.latestLocation?.timezone) {
-      try {
-        const timezone = sessionInfo.latestLocation.timezone;
-        const options = {
+        const options: Intl.DateTimeFormatOptions = {
           timeZone: timezone,
-          hour: "2-digit" as const,
-          minute: "2-digit" as const,
-          month: "numeric" as const,
-          day: "numeric" as const,
+          hour: "2-digit",
+          minute: "2-digit",
+          month: "numeric",
+          day: "numeric",
           hour12: true,
         };
         let formatted = new Date().toLocaleString("en-US", options);
@@ -585,30 +547,30 @@ class DashboardServer extends AppServer {
     // Prioritize calendar events if available and not expired
     if (sessionInfo.calendarEvent) {
       const event = sessionInfo.calendarEvent;
-      let now: Date;
-      let start = new Date(event.dtStart);
-      const end = event.dtEnd ? new Date(event.dtEnd) : null;
-      const tenMinutes = 10 * 60 * 1000;
+      const eventStart = new Date(event.dtStart);
+      const eventEnd = event.dtEnd ? new Date(event.dtEnd) : null;
 
-      // Always restrict: userDatetime > timezone > system time
+      // Get user's timezone (prefer settings, fall back to GPS-derived)
+      const userTimezone =
+        sessionInfo.userTimezone || sessionInfo.latestLocation?.timezone;
+
+      // Get current time in user's timezone for comparison
+      let now: Date;
+      let startInTz: Date;
       let isTomorrow = false;
-      let startInTz = start;
-      if (sessionInfo.userDatetime) {
-        now = new Date(sessionInfo.userDatetime);
-        startInTz = new Date(event.dtStart);
-      } else if (event.timeZone) {
-        const tz = sessionInfo.latestLocation?.timezone || event.timeZone;
-        now = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
-        startInTz = new Date(
-          new Date(event.dtStart).toLocaleString("en-US", { timeZone: tz }),
+
+      if (userTimezone) {
+        // Convert to user's timezone for date comparisons
+        now = new Date(
+          new Date().toLocaleString("en-US", { timeZone: userTimezone }),
         );
-      } else if (sessionInfo.latestLocation?.timezone) {
-        const tz = sessionInfo.latestLocation.timezone;
-        now = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
-        startInTz = new Date(start.toLocaleString("en-US", { timeZone: tz }));
+        startInTz = new Date(
+          eventStart.toLocaleString("en-US", { timeZone: userTimezone }),
+        );
       } else {
+        // Fallback to system time
         now = new Date();
-        startInTz = start;
+        startInTz = eventStart;
       }
 
       // Only show if event is today or tomorrow
@@ -628,7 +590,7 @@ class DashboardServer extends AppServer {
         // Fall through to weather/default
       } else {
         // If event has an end time, hide if now > end
-        if (end && now > end) {
+        if (eventEnd && now > eventEnd) {
           // Don't show expired event
         } else if (now > startInTz) {
           // Hide if now is past the event start time
@@ -669,34 +631,28 @@ class DashboardServer extends AppServer {
     );
 
     try {
-      // PRIORITIZE: userDatetime timezone, then event.timeZone, then user location, then system time
-      const userTimezone = sessionInfo.userDatetime
-        ? extractTimezoneFromISO(sessionInfo.userDatetime)
-        : null;
-      const timezone =
-        userTimezone || event.timeZone || sessionInfo.latestLocation?.timezone;
+      // Get user's timezone (prefer settings, fall back to GPS-derived)
+      const userTimezone =
+        sessionInfo.userTimezone || sessionInfo.latestLocation?.timezone;
 
-      logger.debug({ timezone }, `Calendar event timezone: ${timezone}`);
+      logger.debug({ userTimezone }, `Formatting calendar event with timezone`);
 
-      let eventDate: Date;
-      if (timezone) {
-        // Convert the event start time into a localized Date object
-        const localized = new Date(
-          new Date(event.dtStart).toLocaleString("en-US", {
-            timeZone: timezone,
-          }),
-        );
-        eventDate = localized;
-      } else {
-        eventDate = new Date(event.dtStart); // fallback
+      // Parse event time and format in user's timezone
+      const eventStart = new Date(event.dtStart);
+
+      const formatOptions: Intl.DateTimeFormatOptions = {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      };
+
+      // Add timezone if available
+      if (userTimezone) {
+        formatOptions.timeZone = userTimezone;
       }
 
-      const formattedTime = eventDate
-        .toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: true,
-        })
+      const formattedTime = eventStart
+        .toLocaleTimeString("en-US", formatOptions)
         .replace(" ", "");
 
       const title =
