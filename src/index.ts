@@ -198,7 +198,7 @@ class DashboardServer extends AppServer {
     );
 
     // Listen for AugmentOS setting changes
-    session.settings.onMentraosChange<boolean>(
+    session.settings.onMentraosSettingChange(
       "metricSystemEnabled",
       (newValue, oldValue) => {
         // Force refresh weather data with new unit setting
@@ -692,10 +692,6 @@ class DashboardServer extends AppServer {
             timestamp: new Date(n.timestamp).getTime() || Date.now(),
             uuid: n.uuid,
           }));
-          logger.debug(
-            "NotificationSummaryAgent ranking updated after dismissal:",
-            { ranking },
-          );
         } catch (error) {
           logger.error(
             error,
@@ -718,13 +714,7 @@ class DashboardServer extends AppServer {
 
       // Update dashboard sections immediately
       this.updateDashboardSections(session, sessionId);
-      logger.info(
-        `Notification dismissed and removed from dashboard for session ${sessionId}`,
-      );
     } else {
-      logger.debug(
-        `Dismissed notification not found in cache: ${data.title} - ${data.content}`,
-      );
     }
   }
 
@@ -771,12 +761,6 @@ class DashboardServer extends AppServer {
           });
         }
       });
-      if (updatedViewCounts.length > 0) {
-        logger.debug(
-          { viewCounts: updatedViewCounts },
-          `Incremented view count for top notifications`,
-        );
-      }
 
       // Clean up notification cache and update if modified
       const cacheModified = this.cleanupNotificationCache(sessionInfo, logger);
@@ -801,10 +785,6 @@ class DashboardServer extends AppServer {
             timestamp: new Date(n.timestamp).getTime() || Date.now(),
             uuid: n.uuid,
           }));
-          logger.debug(
-            "NotificationSummaryAgent ranking updated after cleanup:",
-            { ranking },
-          );
         } catch (error) {
           logger.error(
             error,
@@ -839,9 +819,7 @@ class DashboardServer extends AppServer {
       const removedCount =
         sessionInfo.phoneNotificationCache.length - MAX_NOTIFICATION_CACHE_SIZE;
       sessionInfo.phoneNotificationCache.splice(0, removedCount); // Remove oldest notifications
-      logger.debug(
-        `Removed ${removedCount} oldest notifications to maintain cache size limit of ${MAX_NOTIFICATION_CACHE_SIZE}`,
-      );
+
       cacheModified = true;
     }
 
@@ -856,9 +834,7 @@ class DashboardServer extends AppServer {
         sessionInfo.phoneNotificationCache.filter(
           (n) => (n.viewCount || 0) <= MAX_VIEW_COUNT,
         );
-      logger.debug(
-        `Removed ${overViewedNotifications.length} over-viewed notifications (viewCount > ${MAX_VIEW_COUNT}): ${removedUuids.join(", ")}`,
-      );
+
       cacheModified = true;
     }
 
@@ -875,11 +851,6 @@ class DashboardServer extends AppServer {
     lng: number,
     forceUpdate: boolean = false,
   ): Promise<void> {
-    const logger = session.logger; // Use session logger to have session-specific logs with userId correlation.
-    logger.debug(
-      { lat, lng, forceUpdate, function: "fetchWeatherData" },
-      `Fetching weather data for session ${sessionId}`,
-    );
     const sessionInfo = this._activeSessions.get(sessionId);
     if (!sessionInfo) return;
 
@@ -890,7 +861,6 @@ class DashboardServer extends AppServer {
         const useMetric = session.settings.getMentraosSetting(
           "metricSystemEnabled",
         );
-        logger.debug(`[Weather] Metric system enabled: ${useMetric}`);
         const temp = useMetric ? weatherData.tempC : weatherData.tempF;
         const unit = useMetric ? "°C" : "°F";
 
@@ -898,8 +868,6 @@ class DashboardServer extends AppServer {
           timestamp: Date.now(),
           data: `${weatherData.condition}, ${temp}${unit}`,
         };
-
-        logger.debug(`Weather updated: ${sessionInfo.weatherCache.data}`);
 
         // Update dashboard with new weather info
         this.updateDashboardSections(session, sessionId);
@@ -922,8 +890,6 @@ class DashboardServer extends AppServer {
 
     // Extract lat, lng from location data
     const { lat, lng } = data;
-
-    logger.debug(`[Location] Location updated: ${lat}, ${lng}`);
 
     // Skip if invalid coordinates
     if (typeof lat !== "number" || typeof lng !== "number") {
@@ -1013,10 +979,6 @@ class DashboardServer extends AppServer {
 
     // If the event is expired, do not save it
     if (eventStart < now) {
-      logger.info(
-        { title: event.title, dtStart: event.dtStart },
-        `Received expired calendar event, ignoring:`,
-      );
       return;
     }
 
@@ -1034,9 +996,6 @@ class DashboardServer extends AppServer {
       return;
     }
     // Otherwise, keep the existing event (do not update)
-    logger.info(
-      `Received calendar event is not earlier than the current one, ignoring.`,
-    );
   }
 
   /**
@@ -1057,11 +1016,7 @@ const dashboardServer = new DashboardServer();
 // Start the server
 dashboardServer
   .start()
-  .then(() => {
-    dashboardServer.logger.info(
-      `Dashboard Manager TPA running on port ${PORT}`,
-    );
-  })
+  .then(() => {})
   .catch((error) => {
     dashboardServer.logger.error(error, "Failed to start Dashboard Manager");
     process.exit(1);
