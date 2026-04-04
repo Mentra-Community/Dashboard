@@ -101,11 +101,6 @@ class DashboardServer extends AppServer {
     });
 
     this.notificationSummaryAgent = new NotificationSummaryAgent();
-
-    this.logger.info("Dashboard Manager initialized with configuration", {
-      packageName: PACKAGE_NAME,
-      port: PORT,
-    });
   }
 
   /**
@@ -118,36 +113,19 @@ class DashboardServer extends AppServer {
   ): Promise<void> {
     const logger = session.logger; // Use session logger to have session-specific logs with userId correlation
 
-    logger.info(`🚀 New dashboard session started for user ${userId}`, {
-      sessionId,
-      userId,
-      timestamp: new Date().toISOString(),
-    });
+    logger.info(`Dashboard session started for user ${userId}`);
 
     // Check if session already exists, if so clean it up.
     if (this._activeSessions.has(sessionId)) {
-      logger.warn(
-        `Session ${sessionId} already exists, cleaning up previous session data.`,
-      );
       const existingSession = this._activeSessions.get(sessionId);
       if (existingSession?.updateInterval) {
         clearInterval(existingSession.updateInterval);
-        logger.info(
-          `Cleared existing update interval for session ${sessionId}`,
-        );
       }
       this._activeSessions.delete(sessionId);
-      logger.info(`Previous session data cleaned up for ${sessionId}`);
     }
-    // Log session creation
-    logger.info(`📊 Initializing dashboard session for user ${userId}`, {
-      sessionId,
-      timestamp: new Date().toISOString(),
-    });
 
     // Get user timezone from settings
     const userTimezone = session.settings.getMentraOS<string>("userTimezone");
-    logger.info(`📊 User timezone from settings: ${userTimezone || "not set"}`);
 
     // Initialize session metadata
     this._activeSessions.set(sessionId, {
@@ -157,13 +135,8 @@ class DashboardServer extends AppServer {
       userTimezone: userTimezone || undefined,
     });
 
-    logger.info(
-      `📊 Dashboard session initialized with mode: ${DashboardMode.MAIN}`,
-    );
-
     // Listen for timezone changes via settings system
     session.settings.onMentraosChange<string>("userTimezone", (newTimezone) => {
-      logger.info(`📊 User timezone changed to: ${newTimezone}`);
       const sessionInfo = this._activeSessions.get(sessionId);
       if (sessionInfo) {
         sessionInfo.userTimezone = newTimezone;
@@ -173,21 +146,15 @@ class DashboardServer extends AppServer {
 
     // Set up event handlers for this session
     this.setupEventHandlers(session, sessionId);
-    logger.info(`✅ Event handlers set up for session ${sessionId}`);
 
     // Initialize dashboard content and state
     this.initializeDashboard(session, sessionId);
-    logger.info(`✅ Dashboard initialized for session ${sessionId}`);
 
     // Set up settings handlers
     this.setupSettingsHandlers(session, sessionId);
-    logger.info(`✅ Settings handlers set up for session ${sessionId}`);
 
     // Start dashboard update interval
     const updateInterval = setInterval(() => {
-      logger.info(
-        `⏰ Scheduled dashboard update triggered for session ${sessionId}`,
-      );
       this.updateDashboardSections(session, sessionId);
     }, 60000); // Update every minute
 
@@ -199,9 +166,6 @@ class DashboardServer extends AppServer {
         clearInterval(sessionInfo.updateInterval);
       }
       sessionInfo.updateInterval = updateInterval;
-      logger.info(
-        `✅ Dashboard update interval scheduled for session ${sessionId}`,
-      );
     }
 
     session.location.getLatestLocation({ accuracy: "high" }).then(
@@ -218,43 +182,27 @@ class DashboardServer extends AppServer {
     const useMetric = session.settings.getMentraosSetting(
       "metricSystemEnabled",
     ); // Get from session settings
-    logger.info(`[Dashboard] Metric system enabled: ${useMetric}`);
-    logger.info(`✅ Dashboard session setup completed for user ${userId}`, {
-      sessionId,
-      activeSessionCount: this._activeSessions.size,
-    });
   }
 
   /**
    * Set up handlers for settings changes
    */
   private setupSettingsHandlers(session: AppSession, sessionId: string): void {
-    const logger = session.logger; // Use session logger to have session-specific logs with userId correlation
-
     // Listen for specific setting changes
     session.settings.onValueChange(
       "dashboard_content",
       (newValue, oldValue) => {
-        logger.info(
-          `Dashboard content setting changed from ${oldValue} to ${newValue} for session ${sessionId}`,
-        );
-
         // Apply the setting change immediately
         this.updateDashboardSections(session, sessionId);
       },
     );
 
-    // Listen for AugmentOS metric system changes (using new event system)
+    // Listen for AugmentOS setting changes
     session.settings.onMentraosSettingChange(
       "metricSystemEnabled",
       (newValue, oldValue) => {
-        logger.info(
-          `AugmentOS metricSystemEnabled changed from ${oldValue} to ${newValue} for session ${sessionId}`,
-        );
-
         // Force refresh weather data with new unit setting
         const sessionInfo = this._activeSessions.get(sessionId);
-        logger.info({ sessionInfo, location: sessionInfo?.latestLocation });
         if (sessionInfo && sessionInfo.latestLocation) {
           // Fetch fresh weather data with new units
           this.fetchWeatherData(
@@ -268,11 +216,8 @@ class DashboardServer extends AppServer {
       },
     );
 
-    // Get and log current settings
+    // Get current settings
     const dashboardContent = session.settings.get("dashboard_content", "none");
-    logger.info(
-      `Current dashboard content setting: ${dashboardContent} for session ${sessionId}`,
-    );
   }
 
   /**
@@ -293,19 +238,12 @@ class DashboardServer extends AppServer {
 
     // Remove from active sessions map
     this._activeSessions.delete(sessionId);
-
-    this.logger.info(
-      { activeSessionCount: this._activeSessions.size },
-      `Dashboard session resources cleaned up`,
-    );
   }
 
   /**
    * Set up event handlers for a session
    */
   private setupEventHandlers(session: AppSession, sessionId: string): void {
-    const logger = session.logger; // Use session logger to have session-specific logs with userId correlation
-
     // Handle phone notifications
     session.onPhoneNotifications((data) => {
       this.handlePhoneNotification(session, sessionId, data);
@@ -353,7 +291,6 @@ class DashboardServer extends AppServer {
       if (!sessionInfo) return;
 
       sessionInfo.dashboardMode = mode;
-      logger.info(`Dashboard mode changed to ${mode} for session ${sessionId}`);
       this.updateDashboardSections(session, sessionId);
     });
   }
@@ -362,46 +299,34 @@ class DashboardServer extends AppServer {
    * Initialize dashboard content and state
    */
   private initializeDashboard(session: AppSession, sessionId: string): void {
-    const logger = session.logger; // Use session logger to have session-specific logs with userId correlation
+    const logger = session.logger;
 
     const sessionInfo = this._activeSessions.get(sessionId);
     if (!sessionInfo) {
       logger.error(
-        `❌ Failed to initialize dashboard: session info not found for ${sessionId}`,
+        `Failed to initialize dashboard: session info not found for ${sessionId}`,
       );
       return;
     }
 
-    logger.info(`🛠️ Initializing dashboard for session ${sessionId}`);
-
     // Set dashboard to main mode
     try {
-      logger.info(
-        `🔄 Setting dashboard mode to ${DashboardMode.MAIN} for session ${sessionId}`,
-      );
       session.dashboard.system?.setViewMode(DashboardMode.MAIN);
       sessionInfo.dashboardMode = DashboardMode.MAIN;
-      logger.info(
-        `✅ Dashboard mode set to ${DashboardMode.MAIN} for session ${sessionId}`,
-      );
     } catch (error) {
       logger.error(
         error,
-        `❌ Error setting dashboard mode for session ${sessionId}`,
+        `Error setting dashboard mode for session ${sessionId}`,
       );
     }
 
-    // Initialize dashboard sections
+    // Initialize sections
     try {
-      logger.info(
-        `🔄 Initializing dashboard sections for session ${sessionId}`,
-      );
       this.updateDashboardSections(session, sessionId);
-      logger.info(`✅ Dashboard sections initialized for session ${sessionId}`);
     } catch (error) {
       logger.error(
         error,
-        `❌ Error initializing dashboard sections for session ${sessionId}`,
+        `Error initializing dashboard sections for session ${sessionId}`,
       );
     }
   }
@@ -413,14 +338,12 @@ class DashboardServer extends AppServer {
     session: AppSession,
     sessionId: string,
   ): void {
-    const logger = session.logger; // Use session logger to have session-specific logs with userId correlation
-
-    logger.info(`🔄 Updating dashboard sections for session ${sessionId}`);
+    const logger = session.logger;
 
     const sessionInfo = this._activeSessions.get(sessionId);
     if (!sessionInfo) {
       logger.error(
-        `❌ Failed to update dashboard: session info not found for ${sessionId}`,
+        `Failed to update dashboard: session info not found for ${sessionId}`,
       );
       return;
     }
@@ -443,14 +366,10 @@ class DashboardServer extends AppServer {
 
       // Don't send bottom right since we're not using it in the original format
       // session.dashboard.system?.setBottomRight("");
-      logger.debug(
-        { topLeftText, topRight, bottomLeft },
-        `Updated dashboard for ${session.userId}`,
-      );
     } catch (error) {
       logger.error(
         error,
-        `❌ Error updating dashboard sections for user ${session.userId}`,
+        `Error updating dashboard sections for user ${session.userId}`,
       );
     }
   }
@@ -459,15 +378,6 @@ class DashboardServer extends AppServer {
    * Format time section text
    */
   private formatTimeSection(session: AppSession, sessionInfo: any): string {
-    const logger = session.logger;
-    logger.debug(
-      {
-        userTimezone: sessionInfo.userTimezone,
-        locationTimezone: sessionInfo.latestLocation?.timezone,
-      },
-      `Format time section`,
-    );
-
     // Get timezone: prefer userTimezone from settings, fall back to GPS-derived timezone
     const timezone =
       sessionInfo.userTimezone || sessionInfo.latestLocation?.timezone;
@@ -486,10 +396,6 @@ class DashboardServer extends AppServer {
         formatted = formatted.replace(/ [AP]M/, "");
         return `◌ ${formatted}`;
       } catch (error) {
-        logger.error(
-          error,
-          `Error formatting time doe session ${session.userId}`,
-        );
         // fallback below
       }
     }
@@ -624,18 +530,10 @@ class DashboardServer extends AppServer {
     sessionInfo: any,
     isTomorrow: boolean = false,
   ): string {
-    const logger = session.logger; // Use session logger to have session-specific logs with userId correlation.
-    logger.debug(
-      { event, sessionInfo },
-      `Formatting calendar event for session ${session.userId}`,
-    );
-
     try {
       // Get user's timezone (prefer settings, fall back to GPS-derived)
       const userTimezone =
         sessionInfo.userTimezone || sessionInfo.latestLocation?.timezone;
-
-      logger.debug({ userTimezone }, `Formatting calendar event with timezone`);
 
       // Parse event time and format in user's timezone
       const eventStart = new Date(event.dtStart);
@@ -663,14 +561,6 @@ class DashboardServer extends AppServer {
       const timePrefix = isTomorrow ? "tmr @ " : "@ ";
       return `${title} ${timePrefix}${formattedTime}`;
     } catch (error) {
-      logger.error(
-        error,
-        `Error formating calendar event for session ${session.userId}`,
-      );
-      logger.error(
-        { sessionInfo, event },
-        `Error formating calendar event for session ${session.userId}`,
-      );
       return "Calendar event";
     }
   }
@@ -683,12 +573,6 @@ class DashboardServer extends AppServer {
     sessionId: string,
     data: PhoneNotification,
   ): Promise<void> {
-    const logger = session.logger; // Use session logger to have session-specific logs with userId correlation
-    logger.debug(
-      { data, function: "handlePhoneNotification" },
-      `handlePhoneNotification for session ${sessionId}`,
-    );
-
     // Check if session exists
     const sessionInfo = this._activeSessions.get(sessionId);
     if (!sessionInfo) return;
@@ -700,7 +584,6 @@ class DashboardServer extends AppServer {
         data.app.toLowerCase().includes(app),
       )
     ) {
-      logger.debug(`Notification from ${data.app} is blacklisted.`);
       return;
     }
 
@@ -723,7 +606,6 @@ class DashboardServer extends AppServer {
         lastNotification.title === newNotification.title &&
         lastNotification.content === newNotification.content
       ) {
-        logger.debug(`Duplicate notification detected. Not adding to cache.`);
         return;
       }
     }
@@ -754,12 +636,7 @@ class DashboardServer extends AppServer {
         timestamp: new Date(n.timestamp).getTime() || Date.now(),
         uuid: n.uuid,
       }));
-      logger.debug("NotificationSummaryAgent ranking:", { ranking });
     } catch (error) {
-      logger.error(
-        error,
-        `Error using NotificationSummaryAgent for session ${session.userId}`,
-      );
       // fallback: use manual summary as before
       sessionInfo.phoneNotificationRanking = sessionInfo.phoneNotificationCache
         .sort((a, b) => b.timestamp - a.timestamp)
@@ -779,12 +656,6 @@ class DashboardServer extends AppServer {
     sessionId: string,
     data: PhoneNotificationDismissed,
   ): Promise<void> {
-    const logger = session.logger; // Use session logger to have session-specific logs with userId correlation
-    logger.debug(
-      { data, function: "handlePhoneNotificationDismissed" },
-      `handlePhoneNotificationDismissed for session ${sessionId}`,
-    );
-
     // Check if session exists
     const sessionInfo = this._activeSessions.get(sessionId);
     if (!sessionInfo) return;
@@ -798,9 +669,6 @@ class DashboardServer extends AppServer {
     );
 
     if (dismissedIndex !== -1) {
-      logger.debug(
-        `Removing dismissed notification from cache: ${data.title} - ${data.content}`,
-      );
       sessionInfo.phoneNotificationCache.splice(dismissedIndex, 1);
 
       // Re-process notifications with the agent to update ranking
@@ -824,10 +692,6 @@ class DashboardServer extends AppServer {
             timestamp: new Date(n.timestamp).getTime() || Date.now(),
             uuid: n.uuid,
           }));
-          logger.debug(
-            "NotificationSummaryAgent ranking updated after dismissal:",
-            { ranking },
-          );
         } catch (error) {
           logger.error(
             error,
@@ -850,13 +714,7 @@ class DashboardServer extends AppServer {
 
       // Update dashboard sections immediately
       this.updateDashboardSections(session, sessionId);
-      logger.info(
-        `Notification dismissed and removed from dashboard for session ${sessionId}`,
-      );
     } else {
-      logger.debug(
-        `Dismissed notification not found in cache: ${data.title} - ${data.content}`,
-      );
     }
   }
 
@@ -867,7 +725,6 @@ class DashboardServer extends AppServer {
     session: AppSession,
     sessionId: string,
   ): Promise<void> {
-    const logger = session.logger;
     const sessionInfo = this._activeSessions.get(sessionId);
     if (!sessionInfo) return;
 
@@ -904,12 +761,6 @@ class DashboardServer extends AppServer {
           });
         }
       });
-      if (updatedViewCounts.length > 0) {
-        logger.debug(
-          { viewCounts: updatedViewCounts },
-          `Incremented view count for top notifications`,
-        );
-      }
 
       // Clean up notification cache and update if modified
       const cacheModified = this.cleanupNotificationCache(sessionInfo, logger);
@@ -934,10 +785,6 @@ class DashboardServer extends AppServer {
             timestamp: new Date(n.timestamp).getTime() || Date.now(),
             uuid: n.uuid,
           }));
-          logger.debug(
-            "NotificationSummaryAgent ranking updated after cleanup:",
-            { ranking },
-          );
         } catch (error) {
           logger.error(
             error,
@@ -972,9 +819,7 @@ class DashboardServer extends AppServer {
       const removedCount =
         sessionInfo.phoneNotificationCache.length - MAX_NOTIFICATION_CACHE_SIZE;
       sessionInfo.phoneNotificationCache.splice(0, removedCount); // Remove oldest notifications
-      logger.debug(
-        `Removed ${removedCount} oldest notifications to maintain cache size limit of ${MAX_NOTIFICATION_CACHE_SIZE}`,
-      );
+
       cacheModified = true;
     }
 
@@ -989,9 +834,7 @@ class DashboardServer extends AppServer {
         sessionInfo.phoneNotificationCache.filter(
           (n) => (n.viewCount || 0) <= MAX_VIEW_COUNT,
         );
-      logger.debug(
-        `Removed ${overViewedNotifications.length} over-viewed notifications (viewCount > ${MAX_VIEW_COUNT}): ${removedUuids.join(", ")}`,
-      );
+
       cacheModified = true;
     }
 
@@ -1008,11 +851,6 @@ class DashboardServer extends AppServer {
     lng: number,
     forceUpdate: boolean = false,
   ): Promise<void> {
-    const logger = session.logger; // Use session logger to have session-specific logs with userId correlation.
-    logger.debug(
-      { lat, lng, forceUpdate, function: "fetchWeatherData" },
-      `Fetching weather data for session ${sessionId}`,
-    );
     const sessionInfo = this._activeSessions.get(sessionId);
     if (!sessionInfo) return;
 
@@ -1023,7 +861,6 @@ class DashboardServer extends AppServer {
         const useMetric = session.settings.getMentraosSetting(
           "metricSystemEnabled",
         );
-        logger.debug(`[Weather] Metric system enabled: ${useMetric}`);
         const temp = useMetric ? weatherData.tempC : weatherData.tempF;
         const unit = useMetric ? "°C" : "°F";
 
@@ -1031,8 +868,6 @@ class DashboardServer extends AppServer {
           timestamp: Date.now(),
           data: `${weatherData.condition}, ${temp}${unit}`,
         };
-
-        logger.debug(`Weather updated: ${sessionInfo.weatherCache.data}`);
 
         // Update dashboard with new weather info
         this.updateDashboardSections(session, sessionId);
@@ -1050,19 +885,11 @@ class DashboardServer extends AppServer {
     sessionId: string,
     data: LocationUpdate,
   ): Promise<void> {
-    const logger = session.logger; // Use session logger to have session-specific logs with userId correlation.
-    logger.debug(
-      { data, function: "handleLocationUpdate" },
-      `handleLocationUpdate for session ${sessionId}`,
-    );
-
     const sessionInfo = this._activeSessions.get(sessionId);
     if (!sessionInfo) return;
 
     // Extract lat, lng from location data
     const { lat, lng } = data;
-
-    logger.debug(`[Location] Location updated: ${lat}, ${lng}`);
 
     // Skip if invalid coordinates
     if (typeof lat !== "number" || typeof lng !== "number") {
@@ -1106,11 +933,6 @@ class DashboardServer extends AppServer {
     sessionId: string,
     data: GlassesBatteryUpdate,
   ): void {
-    const logger = session.logger; // Use session logger to have session-specific logs with userId correlation.
-    logger.debug(
-      { data, function: "handleBatteryUpdate" },
-      `handleBatteryUpdate for session ${sessionId}`,
-    );
     const sessionInfo = this._activeSessions.get(sessionId);
     if (!sessionInfo) return;
 
@@ -1132,12 +954,6 @@ class DashboardServer extends AppServer {
     sessionId: string,
     event: CalendarEvent,
   ): void {
-    const logger = session.logger; // Use session logger to have session-specific logs with userId correlation.
-    logger.debug(
-      { event, function: "handleCalendarEvent" },
-      `handleCalendarEvent for session ${sessionId}`,
-    );
-
     const sessionInfo = this._activeSessions.get(sessionId);
     if (!sessionInfo) return;
 
@@ -1163,10 +979,6 @@ class DashboardServer extends AppServer {
 
     // If the event is expired, do not save it
     if (eventStart < now) {
-      logger.info(
-        { title: event.title, dtStart: event.dtStart },
-        `Received expired calendar event, ignoring:`,
-      );
       return;
     }
 
@@ -1184,9 +996,6 @@ class DashboardServer extends AppServer {
       return;
     }
     // Otherwise, keep the existing event (do not update)
-    logger.info(
-      `Received calendar event is not earlier than the current one, ignoring.`,
-    );
   }
 
   /**
@@ -1207,11 +1016,7 @@ const dashboardServer = new DashboardServer();
 // Start the server
 dashboardServer
   .start()
-  .then(() => {
-    dashboardServer.logger.info(
-      `Dashboard Manager TPA running on port ${PORT}`,
-    );
-  })
+  .then(() => {})
   .catch((error) => {
     dashboardServer.logger.error(error, "Failed to start Dashboard Manager");
     process.exit(1);
