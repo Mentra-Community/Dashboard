@@ -20,6 +20,9 @@ A system Third-Party Application (TPA) for AugmentOS that provides dashboard fun
 ## Setup
 
 1. Clone the repository
+   ```bash
+   git clone https://github.com/AugmentOS-Community/Dashboard.git
+   ```
 
 2. Install dependencies:
    ```bash
